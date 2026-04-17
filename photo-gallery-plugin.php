@@ -847,6 +847,931 @@ function pgp_render_winner_photo_release_form_shortcode($atts)
 add_shortcode('winner_photo_release_form', 'pgp_render_winner_photo_release_form_shortcode');
 add_shortcode('winnerphotorelease', 'pgp_render_winner_photo_release_form_shortcode');
 
+function pgp_get_distributor_registration_redirect_url()
+{
+    $redirectUrl = '';
+
+    if (is_singular()) {
+        $postId = get_queried_object_id();
+        if ($postId) {
+            $redirectUrl = get_permalink($postId);
+        }
+    }
+
+    if ($redirectUrl === '') {
+        $requestUri = isset($_SERVER['REQUEST_URI']) ? wp_unslash($_SERVER['REQUEST_URI']) : '/';
+        $redirectUrl = home_url($requestUri);
+    }
+
+    return remove_query_arg(['pgp_dr_status', 'pgp_dr_message'], $redirectUrl);
+}
+
+function pgp_get_distributor_registration_feedback()
+{
+    return [
+        'status' => isset($_GET['pgp_dr_status']) ? sanitize_key(wp_unslash($_GET['pgp_dr_status'])) : '',
+        'message' => isset($_GET['pgp_dr_message']) ? sanitize_text_field(wp_unslash($_GET['pgp_dr_message'])) : '',
+    ];
+}
+
+function pgp_build_distributor_registration_feedback_url($status, $message = '', $redirectUrl = '')
+{
+    if ($redirectUrl === '') {
+        $redirectUrl = pgp_get_distributor_registration_redirect_url();
+    }
+
+    $args = ['pgp_dr_status' => $status];
+    if ($message !== '') {
+        $args['pgp_dr_message'] = $message;
+    }
+
+    return add_query_arg($args, $redirectUrl);
+}
+
+function pgp_get_canadian_provinces()
+{
+    return [
+        'AB' => 'Alberta',
+        'BC' => 'British Columbia',
+        'MB' => 'Manitoba',
+        'NB' => 'New Brunswick',
+        'NL' => 'Newfoundland and Labrador',
+        'NS' => 'Nova Scotia',
+        'NT' => 'Northwest Territories',
+        'NU' => 'Nunavut',
+        'ON' => 'Ontario',
+        'PE' => 'Prince Edward Island',
+        'QC' => 'Quebec',
+        'SK' => 'Saskatchewan',
+        'YT' => 'Yukon',
+    ];
+}
+
+function pgp_find_table_name($baseName)
+{
+    global $wpdb;
+
+    $baseName = preg_replace('/[^a-zA-Z0-9_]/', '', (string) $baseName);
+    if ($baseName === '') {
+        return '';
+    }
+
+    $candidates = [
+        $baseName,
+        $wpdb->prefix . $baseName,
+        'wp_' . $baseName,
+    ];
+
+    foreach ($candidates as $candidate) {
+        $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $candidate));
+        if ($exists === $candidate) {
+            return $candidate;
+        }
+    }
+
+    return '';
+}
+
+require_once PGP_PLUGIN_PATH . 'includes/models/class-pgp-model-distributor-tables.php';
+require_once PGP_PLUGIN_PATH . 'includes/class-pgp-distributor-db-migrate.php';
+require_once PGP_PLUGIN_PATH . 'includes/class-pgp-distributor-repository.php';
+require_once PGP_PLUGIN_PATH . 'includes/class-pgp-distributor-registration-controller.php';
+
+/**
+ * Auto-create distributor tables (prefixed) when missing, same pattern as the winner submissions table.
+ */
+function pgp_ensure_distributor_registration_tables()
+{
+    if (!class_exists('PGP_Distributor_Db_Migrate')) {
+        return;
+    }
+    PGP_Distributor_Db_Migrate::maybe_install();
+}
+
+add_action('init', 'pgp_ensure_distributor_registration_tables', 3);
+
+// Shortcodes: [distributor_registration_form thank_you_url="" contact_email="info@babybrands.com"] or [distributorregistration ...]
+function pgp_render_distributor_registration_form_shortcode($atts, $content = '', $tag = '')
+{
+    $shortcodeTag = $tag !== '' ? $tag : 'distributor_registration_form';
+    $atts = shortcode_atts(
+        [
+            'thank_you_url' => '',
+            'contact_email' => 'info@babybrands.com',
+        ],
+        $atts,
+        $shortcodeTag
+    );
+
+    $thankYouUrl = esc_url(trim((string) $atts['thank_you_url']));
+    $contactEmail = sanitize_email((string) $atts['contact_email']);
+    if ($contactEmail === '') {
+        $contactEmail = 'info@babybrands.com';
+    }
+    $contactEmail = (string) apply_filters('pgp_distributor_registration_contact_email', $contactEmail, $shortcodeTag);
+    if (!is_email($contactEmail)) {
+        $contactEmail = 'info@babybrands.com';
+    }
+
+    $feedback = pgp_get_distributor_registration_feedback();
+    $redirectUrl = pgp_get_distributor_registration_redirect_url();
+    $successRedirectUrl = $thankYouUrl !== '' ? $thankYouUrl : $redirectUrl;
+    $successRedirectUrl = wp_validate_redirect($successRedirectUrl, $redirectUrl);
+    $successRedirectUrl = remove_query_arg(['pgp_dr_status', 'pgp_dr_message'], $successRedirectUrl);
+    $formPageUrl = remove_query_arg(['pgp_dr_status', 'pgp_dr_message'], $redirectUrl);
+
+    // Load Bootstrap to match the existing reg-baby form styling.
+    wp_enqueue_style('pgp-bootstrap4', 'https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css', [], '4.5.2');
+    wp_enqueue_style(
+        'pgp-distributor-registration',
+        PGP_PLUGIN_URL . 'assets/css/distributor-registration.css',
+        ['pgp-bootstrap4'],
+        PGP_VERSION
+    );
+    wp_enqueue_script('pgp-jquery', 'https://code.jquery.com/jquery-3.5.1.min.js', [], '3.5.1', true);
+    wp_enqueue_script('pgp-popper', 'https://cdn.jsdelivr.net/npm/@popperjs/core@2.9.3/dist/umd/popper.min.js', [], '2.9.3', true);
+    wp_enqueue_script('pgp-bootstrap4', 'https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js', ['pgp-jquery', 'pgp-popper'], '4.5.2', true);
+
+    $isSuccess = $feedback['status'] === 'success';
+    $errorMessage = $feedback['status'] === 'error' ? $feedback['message'] : '';
+
+    $provinces = pgp_get_canadian_provinces();
+
+    $assets = [
+        'step1' => PGP_PLUGIN_URL . 'assets/images/step1.png',
+        'step2' => PGP_PLUGIN_URL . 'assets/images/step2.png',
+        'step3' => PGP_PLUGIN_URL . 'assets/images/step3.png',
+        'samplits_logo' => PGP_PLUGIN_URL . 'assets/images/samplits-logo.png',
+        'thankyou_banner' => PGP_PLUGIN_URL . 'assets/images/distributors-banner-thankyou.png',
+    ];
+
+    ob_start();
+    ?>
+    <main class="pgp-dr-shell">
+        <div class="container pgp-dr-container">
+            <?php if ($isSuccess) : ?>
+                <div class="pgp-dr-thankyou pgp-dr-thankyou-page">
+                    <div class="pgp-dr-thankyou-card">
+                        <div class="pgp-dr-thankyou-badge"><?php esc_html_e('DISTRIBUTOR APPLICATION RECEIVED', 'photo-gallery-plugin'); ?></div>
+                        <h1 class="pgp-dr-thankyou-card-title"><?php esc_html_e('Thank You!', 'photo-gallery-plugin'); ?></h1>
+                        <p class="pgp-dr-thankyou-card-lead"><?php esc_html_e('We have received your request form.', 'photo-gallery-plugin'); ?></p>
+                        <p class="pgp-dr-thankyou-card-text">
+                            <?php esc_html_e('We will review your request prior to our next distribution. Once approved you will receive an email from us.', 'photo-gallery-plugin'); ?>
+                        </p>
+                        <p class="pgp-dr-thankyou-card-text">
+                            <?php esc_html_e('If you have any questions prior, please reach out to', 'photo-gallery-plugin'); ?>
+                            <a href="mailto:<?php echo esc_attr($contactEmail); ?>"><?php echo esc_html($contactEmail); ?></a>
+                        </p>
+                        <a class="btn btn-primary pgp-dr-thankyou-cta" href="<?php echo esc_url($formPageUrl); ?>"><?php esc_html_e('Submit another application', 'photo-gallery-plugin'); ?></a>
+                        <div class="pgp-dr-thankyou-card-footer">
+                            <div class="pgp-dr-powered-by">Powered by Samplits</div>
+                            <img src="<?php echo esc_url($assets['samplits_logo']); ?>" alt="Samplits Logo">
+                        </div>
+                    </div>
+                    <div class="pgp-dr-thankyou-banner-wrap text-center">
+                        <img class="pgp-dr-thankyou-banner" src="<?php echo esc_url($assets['thankyou_banner']); ?>" alt="">
+                    </div>
+                </div>
+                <script>
+                (function () {
+                    try {
+                        var u = new URL(window.location.href);
+                        if (!u.searchParams.has('pgp_dr_status')) {
+                            return;
+                        }
+                        u.searchParams.delete('pgp_dr_status');
+                        u.searchParams.delete('pgp_dr_message');
+                        var qs = u.searchParams.toString();
+                        var newUrl = u.pathname + (qs ? '?' + qs : '') + u.hash;
+                        window.history.replaceState(null, '', newUrl);
+                    } catch (e) {}
+                })();
+                </script>
+            <?php elseif ($errorMessage !== '') : ?>
+                <div class="alert alert-danger text-center mb-4">
+                    <?php echo esc_html($errorMessage); ?>
+                </div>
+            <?php endif; ?>
+
+            <?php if ($feedback['status'] === 'error') : ?>
+                <script>
+                (function () {
+                    try {
+                        var u = new URL(window.location.href);
+                        if (!u.searchParams.has('pgp_dr_status') && !u.searchParams.has('pgp_dr_message')) {
+                            return;
+                        }
+                        u.searchParams.delete('pgp_dr_status');
+                        u.searchParams.delete('pgp_dr_message');
+                        var qs = u.searchParams.toString();
+                        var newUrl = u.pathname + (qs ? '?' + qs : '') + u.hash;
+                        window.history.replaceState(null, '', newUrl);
+                    } catch (e) {}
+                })();
+                </script>
+            <?php endif; ?>
+
+            <?php if (!$isSuccess) : ?>
+                <div class="pgp-dr-form-container">
+                    <div class="p-3">
+                        <img class="pgp-dr-header-image" id="pgp-dr-stepImage" src="<?php echo esc_url($assets['step1']); ?>" alt="Distributor application header">
+                    </div>
+
+                    <div class="pgp-dr-topbar">
+                        <div class="pgp-dr-title">DISTRIBUTOR APPLICATION</div>
+                    </div>
+
+                    <div class="pgp-dr-step-indicator">
+                        <div class="pgp-dr-step-items">
+                            <div class="pgp-dr-step-item">
+                                <div class="pgp-dr-step-circle is-active" id="pgp-dr-stepIndicator1">1</div>
+                                <div class="pgp-dr-step-label" id="pgp-dr-stepLabel1">General Information</div>
+                                <span class="pgp-dr-step-connector" aria-hidden="true"></span>
+                            </div>
+                            <div class="pgp-dr-step-item">
+                                <div class="pgp-dr-step-circle" id="pgp-dr-stepIndicator2">2</div>
+                                <div class="pgp-dr-step-label" id="pgp-dr-stepLabel2">Sample Information</div>
+                                <span class="pgp-dr-step-connector" aria-hidden="true"></span>
+                            </div>
+                            <div class="pgp-dr-step-item">
+                                <div class="pgp-dr-step-circle" id="pgp-dr-stepIndicator3">3</div>
+                                <div class="pgp-dr-step-label" id="pgp-dr-stepLabel3">Terms and Condition</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <form class="pgp-dr-form px-3 pb-3" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" novalidate>
+                            <input type="hidden" name="action" value="pgp_distributor_register">
+                            <input type="hidden" name="redirect_to" value="<?php echo esc_url($redirectUrl); ?>">
+                            <input type="hidden" name="pgp_dr_success_redirect" value="<?php echo esc_url($successRedirectUrl); ?>">
+                            <?php wp_nonce_field('pgp_distributor_register', 'pgp_dr_nonce'); ?>
+
+                            <div class="pgp-dr-step pgp-dr-step-active" id="pgp-dr-step1">
+                                <div class="form-group">
+                                    <label for="pgp-dr-name">*Name of the organization</label>
+                                    <input type="text" class="form-control" id="pgp-dr-name" name="name" required>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group col-md-6">
+                                        <label for="pgp-dr-firstName">*Contact First Name</label>
+                                        <input type="text" class="form-control" id="pgp-dr-firstName" name="firstName" required>
+                                    </div>
+                                    <div class="form-group col-md-6">
+                                        <label for="pgp-dr-lastName">*Contact Last Name</label>
+                                        <input type="text" class="form-control" id="pgp-dr-lastName" name="lastName" required>
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group col-md-6">
+                                        <label for="pgp-dr-email">*Email Address</label>
+                                        <input type="email" class="form-control" id="pgp-dr-email" name="email" required>
+                                        <div class="invalid-feedback" id="pgp-dr-emailError" style="display:none;">Invalid email address</div>
+                                    </div>
+                                    <div class="form-group col-md-6">
+                                        <label for="pgp-dr-job">*Job Title</label>
+                                        <input type="text" class="form-control" id="pgp-dr-job" name="job" required>
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="pgp-dr-department">*Department/Unit</label>
+                                    <input type="text" class="form-control" id="pgp-dr-department" name="department" required>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group col-md-6">
+                                        <label for="pgp-dr-phone">*Telephone Number</label>
+                                        <input type="text" class="form-control" id="pgp-dr-phone" name="phone" required>
+                                        <div class="invalid-feedback" id="pgp-dr-phoneError" style="display:none;">Please enter a valid phone number</div>
+                                    </div>
+                                    <div class="form-group col-md-6">
+                                        <label for="pgp-dr-extension">Extension</label>
+                                        <input type="text" class="form-control" id="pgp-dr-extension" name="extension">
+                                        <div class="invalid-feedback" id="pgp-dr-extensionError" style="display:none;">Please enter numbers only</div>
+                                    </div>
+                                </div>
+
+                                <hr>
+                                <h3 class="h6">Shipping Information</h3>
+
+                                <div class="form-row">
+                                    <div class="form-group col-md-6">
+                                        <label for="pgp-dr-address1">*Address 1</label>
+                                        <input type="text" class="form-control" id="pgp-dr-address1" name="address1" required>
+                                    </div>
+                                    <div class="form-group col-md-6">
+                                        <label for="pgp-dr-suite">Suite #</label>
+                                        <input type="text" class="form-control" id="pgp-dr-suite" name="suite">
+                                    </div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group col-md-4">
+                                        <label for="pgp-dr-city">*City</label>
+                                        <input type="text" class="form-control" id="pgp-dr-city" name="city" required>
+                                    </div>
+                                    <div class="form-group col-md-4">
+                                        <label for="pgp-dr-province">*Province</label>
+                                        <select class="form-control" id="pgp-dr-province" name="province" required>
+                                            <option value="">Select Province</option>
+                                            <?php foreach ($provinces as $abbr => $label) : ?>
+                                                <option value="<?php echo esc_attr($abbr); ?>"><?php echo esc_html($abbr.' - '.$label); ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                    <div class="form-group col-md-4">
+                                        <label for="pgp-dr-postalCode">*Postal Code</label>
+                                        <input type="text" class="form-control" id="pgp-dr-postalCode" name="postalCode" required>
+                                        <div class="invalid-feedback" id="pgp-dr-postalCodeError" style="display:none;">Format: XNX NXN</div>
+                                    </div>
+                                </div>
+
+                                <div class="form-group mt-3">
+                                    <label class="font-weight-bold d-block">*Category</label>
+                                    <?php
+                                    $categories = [
+                                        'Doula / Midwife',
+                                        'Ultrasound',
+                                        'Prenatal Instructor',
+                                        'Hospital',
+                                        'Dr. / OBGYN',
+                                        'Trade Show',
+                                        'Pregnancy Centre',
+                                        'Medical Centre',
+                                        'Other',
+                                    ];
+                                    foreach ($categories as $cat) :
+                                        $id = 'pgp-dr-category-' . sanitize_title($cat);
+                                        ?>
+                                        <div class="form-check form-check-inline">
+                                            <input class="form-check-input" type="radio" name="category" id="<?php echo esc_attr($id); ?>" value="<?php echo esc_attr($cat); ?>" required>
+                                            <label class="form-check-label" for="<?php echo esc_attr($id); ?>"><?php echo esc_html($cat); ?></label>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="font-weight-bold d-block">*Identify the majority of patients you cater to</label>
+                                    <?php foreach (['Prenatal', 'Postnatal', 'Both'] as $pt) : ?>
+                                        <div class="form-check form-check-inline">
+                                            <input class="form-check-input" type="radio" name="patientsType" id="pgp-dr-patientsType-<?php echo esc_attr(strtolower($pt)); ?>" value="<?php echo esc_attr($pt); ?>" required>
+                                            <label class="form-check-label" for="pgp-dr-patientsType-<?php echo esc_attr(strtolower($pt)); ?>"><?php echo esc_html($pt); ?></label>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+
+                                <div class="d-flex justify-content-end">
+                                    <button type="button" class="btn btn-primary pgp-dr-next">Continue</button>
+                                </div>
+                            </div>
+
+                            <div class="pgp-dr-step" id="pgp-dr-step2" style="display:none;">
+                                <div class="form-group">
+                                    <label class="font-weight-bold">*IF AVAILABLE, do you want any of the following included in your gift bags?</label>
+                                    <div class="mb-2">Bottles/Pacifiers</div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="radio" name="bottles" id="pgp-dr-bottlesYes" value="Yes" required>
+                                        <label class="form-check-label" for="pgp-dr-bottlesYes">Yes</label>
+                                    </div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="radio" name="bottles" id="pgp-dr-bottlesNo" value="No" required>
+                                        <label class="form-check-label" for="pgp-dr-bottlesNo">No</label>
+                                    </div>
+
+                                    <div class="mt-3 mb-2">Vitamins</div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="radio" name="vitamins" id="pgp-dr-vitaminsYes" value="Yes" required>
+                                        <label class="form-check-label" for="pgp-dr-vitaminsYes">Yes</label>
+                                    </div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="radio" name="vitamins" id="pgp-dr-vitaminsNo" value="No" required>
+                                        <label class="form-check-label" for="pgp-dr-vitaminsNo">No</label>
+                                    </div>
+
+                                    <div class="mt-3 mb-2">Formula</div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="radio" name="formula" id="pgp-dr-formulaYes" value="Yes" required>
+                                        <label class="form-check-label" for="pgp-dr-formulaYes">Yes</label>
+                                    </div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="radio" name="formula" id="pgp-dr-formulaNo" value="No" required>
+                                        <label class="form-check-label" for="pgp-dr-formulaNo">No</label>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="font-weight-bold d-block mb-2">*Indicate the language in which you want to receive your sample bag</label>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="radio" name="language" id="pgp-dr-english" value="1" required>
+                                        <label class="form-check-label" for="pgp-dr-english">English</label>
+                                    </div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="radio" name="language" id="pgp-dr-french" value="2" required>
+                                        <label class="form-check-label" for="pgp-dr-french">French</label>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="font-weight-bold">*Please indicate how often you would like to receive samples: (Minimum 50 Per Box)</label>
+                                    <?php
+                                    $freq = [
+                                        'Monthly' => 'Monthly (January - December)',
+                                        'BiMonthly' => 'BiMonthly (January, March, May, July, September, November)',
+                                        'Quarterly' => 'Quarterly (February, May, August, November)',
+                                        'SemiAnnually' => 'Semi-Annually',
+                                        'Annual' => 'Annual',
+                                    ];
+                                    foreach ($freq as $val => $label) :
+                                        $id = 'pgp-dr-freq-' . strtolower($val);
+                                        ?>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="sampleFrequency" id="<?php echo esc_attr($id); ?>" value="<?php echo esc_attr($val); ?>" required>
+                                            <label class="form-check-label" for="<?php echo esc_attr($id); ?>"><?php echo esc_html($label); ?></label>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="font-weight-bold">*Approximately how many patients does your center see monthly</label>
+                                    <input type="text" class="form-control" id="pgp-dr-numberOfPatients" name="numberOfPatients" required>
+                                    <div class="invalid-feedback" id="pgp-dr-numberOfPatientsError" style="display:none;">Numbers only</div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="font-weight-bold d-block mb-2">*Based on the number of patient visits, how many bags per shipment?</label>
+                                    <?php foreach (['50', '100', '150', '200'] as $n) : ?>
+                                        <div class="form-check form-check-inline">
+                                            <input class="form-check-input" type="radio" name="nuOfSamples" id="pgp-dr-samples-<?php echo esc_attr($n); ?>" value="<?php echo esc_attr($n); ?>" required>
+                                            <label class="form-check-label" for="pgp-dr-samples-<?php echo esc_attr($n); ?>"><?php echo esc_html($n); ?></label>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+
+                                <div class="d-flex justify-content-end">
+                                    <button type="button" class="btn btn-outline-primary pgp-dr-prev mr-3">Previous</button>
+                                    <button type="button" class="btn btn-primary pgp-dr-next">Continue</button>
+                                </div>
+                            </div>
+
+                            <div class="pgp-dr-step" id="pgp-dr-step3" style="display:none;">
+                                <div class="form-group">
+                                    <label class="font-weight-bold d-block">Number of Doctors/Doula-Midwife at this centre</label>
+                                    <div id="pgp-dr-doctors">
+                                        <div class="pgp-dr-doctor-row border rounded p-3 mb-3">
+                                            <div class="form-row">
+                                                <div class="form-group col-md-3">
+                                                    <label>Prefix</label>
+                                                    <select class="form-control" name="prefix[]">
+                                                        <option value="">No Selection</option>
+                                                        <option value="DR.">DR.</option>
+                                                        <option value="Doula-Midwife">Doula-Midwife</option>
+                                                        <option value="Educator">Educator</option>
+                                                        <option value="Sonographer">Sonographer</option>
+                                                        <option value="Nurse">Nurse</option>
+                                                    </select>
+                                                </div>
+                                                <div class="form-group col-md-4">
+                                                    <label>*First Name</label>
+                                                    <input type="text" class="form-control" name="fName[]" required>
+                                                </div>
+                                                <div class="form-group col-md-4">
+                                                    <label>*Last Name</label>
+                                                    <input type="text" class="form-control" name="lName[]" required>
+                                                </div>
+                                                <div class="form-group col-md-1 d-flex align-items-end">
+                                                    <button type="button" class="btn btn-danger pgp-dr-remove-doctor" style="display:none;">&times;</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="text-right">
+                                        <a href="#" id="pgp-dr-add-doctor">Add new Doctor</a>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="font-weight-bold">Special Shipping Instructions</label>
+                                    <input type="text" class="form-control" id="pgp-dr-specialShippingInstruction" name="specialShippingInstruction">
+                                </div>
+
+                                <div class="form-group">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="pgp-dr-terms1" name="terms1" value="on" required>
+                                        <label class="form-check-label" for="pgp-dr-terms1">
+                                            By registering, you will be given free samples in a sealed bag. One bag per patient, to be distributed as received.
+                                        </label>
+                                    </div>
+                                    <div class="form-check mt-2">
+                                        <input class="form-check-input" type="checkbox" id="pgp-dr-terms2" name="terms2" value="on" required>
+                                        <label class="form-check-label" for="pgp-dr-terms2">
+                                            By registering, you will be given brochures for your reception area to help us ship samples directly.
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="d-flex justify-content-end">
+                                    <button type="button" class="btn btn-outline-primary pgp-dr-prev mr-3">Previous</button>
+                                    <button type="submit" class="btn btn-primary">Register Now</button>
+                                </div>
+                            </div>
+                        </form>
+
+                    <div class="pgp-dr-footer p-4 pgp-dr-thankyou-card-footer">
+                        <div class="pgp-dr-powered-by">Powered by Samplits</div>
+                        <img src="<?php echo esc_url($assets['samplits_logo']); ?>" alt="Samplits Logo">
+                    </div>
+                </div>
+                <script>
+                document.addEventListener('DOMContentLoaded', function () {
+                    var form = document.querySelector('.pgp-dr-form');
+                    if (!form || form.dataset.pgpReady === '1') return;
+                    form.dataset.pgpReady = '1';
+
+                    var currentStep = 1;
+                    var stepImage = document.getElementById('pgp-dr-stepImage');
+                    var step1 = document.getElementById('pgp-dr-step1');
+                    var step2 = document.getElementById('pgp-dr-step2');
+                    var step3 = document.getElementById('pgp-dr-step3');
+                    var items = [
+                        document.getElementById('pgp-dr-stepIndicator1') ? document.getElementById('pgp-dr-stepIndicator1').closest('.pgp-dr-step-item') : null,
+                        document.getElementById('pgp-dr-stepIndicator2') ? document.getElementById('pgp-dr-stepIndicator2').closest('.pgp-dr-step-item') : null,
+                        document.getElementById('pgp-dr-stepIndicator3') ? document.getElementById('pgp-dr-stepIndicator3').closest('.pgp-dr-step-item') : null
+                    ];
+                    var indicators = [
+                        document.getElementById('pgp-dr-stepIndicator1'),
+                        document.getElementById('pgp-dr-stepIndicator2'),
+                        document.getElementById('pgp-dr-stepIndicator3')
+                    ];
+                    var labels = [
+                        document.getElementById('pgp-dr-stepLabel1'),
+                        document.getElementById('pgp-dr-stepLabel2'),
+                        document.getElementById('pgp-dr-stepLabel3')
+                    ];
+                    var stepImages = {
+                        1: <?php echo wp_json_encode($assets['step1']); ?>,
+                        2: <?php echo wp_json_encode($assets['step2']); ?>,
+                        3: <?php echo wp_json_encode($assets['step3']); ?>
+                    };
+
+                    function showStep(step) {
+                        currentStep = step;
+                        [step1, step2, step3].forEach(function (el, idx) {
+                            if (!el) return;
+                            el.style.display = (idx + 1 === step) ? 'block' : 'none';
+                        });
+                        indicators.forEach(function (el, idx) {
+                            if (!el) return;
+                            var stepNum = idx + 1;
+                            el.classList.toggle('is-active', stepNum === step);
+                            el.classList.toggle('is-completed', stepNum < step);
+                        });
+                        labels.forEach(function (el, idx) {
+                            if (!el) return;
+                            var stepNum = idx + 1;
+                            el.classList.toggle('is-active', stepNum === step);
+                            el.classList.toggle('is-completed', stepNum < step);
+                        });
+                        items.forEach(function (el, idx) {
+                            if (!el) return;
+                            var stepNum = idx + 1;
+                            el.classList.toggle('is-active', stepNum === step);
+                            el.classList.toggle('is-completed', stepNum < step);
+                        });
+                        if (stepImage && stepImages[step]) {
+                            stepImage.src = stepImages[step];
+                        }
+                        window.scrollTo({ top: form.getBoundingClientRect().top + window.scrollY - 30, behavior: 'smooth' });
+                    }
+
+                    function formatPhone(value) {
+                        if (!value) return value;
+                        var digits = value.replace(/\D/g, '').slice(0, 10);
+                        if (digits.length <= 3) return digits;
+                        if (digits.length <= 6) return '(' + digits.slice(0, 3) + ') ' + digits.slice(3);
+                        return '(' + digits.slice(0, 3) + ') ' + digits.slice(3, 6) + '-' + digits.slice(6);
+                    }
+
+                    var phone = document.getElementById('pgp-dr-phone');
+                    if (phone) {
+                        phone.addEventListener('input', function () {
+                            phone.value = formatPhone(phone.value);
+                            syncFieldVisual(phone, false);
+                        });
+                    }
+
+                    function hideDrErr(id) {
+                        var n = document.getElementById(id);
+                        if (n) n.style.display = 'none';
+                    }
+
+                    function showDrErr(id) {
+                        var n = document.getElementById(id);
+                        if (n) n.style.display = 'block';
+                    }
+
+                    function syncFieldVisual(el, isBlur) {
+                        if (!el || !form.contains(el)) return;
+                        if (el.type === 'submit' || el.type === 'button') return;
+
+                        if (el.type === 'radio' && el.name) {
+                            var esc = el.name.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                            var radios = form.querySelectorAll('input[type="radio"][name="' + esc + '"]');
+                            if (!radios.length) return;
+                            var tracked = ['category', 'patientsType', 'bottles', 'vitamins', 'formula', 'language', 'sampleFrequency', 'nuOfSamples'];
+                            var req = false;
+                            radios.forEach(function (r) { if (r.required) req = true; });
+                            if (!req && tracked.indexOf(el.name) === -1) return;
+                            var checked = form.querySelector('input[type="radio"][name="' + esc + '"]:checked');
+                            var ok = !!checked;
+                            radios.forEach(function (r) {
+                                r.classList.remove('is-valid', 'is-invalid');
+                                if (ok && r.checked) r.classList.add('is-valid');
+                                if (!ok) r.classList.add('is-invalid');
+                            });
+                            return;
+                        }
+
+                        if (el.type === 'checkbox' && el.required) {
+                            el.classList.toggle('is-valid', el.checked);
+                            el.classList.toggle('is-invalid', !el.checked);
+                            return;
+                        }
+
+                        if (el.tagName !== 'INPUT' && el.tagName !== 'SELECT' && el.tagName !== 'TEXTAREA') return;
+
+                        var v = (el.value || '').trim();
+                        var id = el.id;
+
+                        if (el.required && v === '') {
+                            el.classList.remove('is-valid');
+                            if (isBlur) el.classList.add('is-invalid');
+                            else el.classList.remove('is-invalid');
+                            if (id === 'pgp-dr-email') hideDrErr('pgp-dr-emailError');
+                            if (id === 'pgp-dr-phone') hideDrErr('pgp-dr-phoneError');
+                            if (id === 'pgp-dr-extension') hideDrErr('pgp-dr-extensionError');
+                            if (id === 'pgp-dr-postalCode') hideDrErr('pgp-dr-postalCodeError');
+                            if (id === 'pgp-dr-numberOfPatients') hideDrErr('pgp-dr-numberOfPatientsError');
+                            return;
+                        }
+
+                        var ok = true;
+
+                        if (id === 'pgp-dr-email') {
+                            ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+                            if (!ok) showDrErr('pgp-dr-emailError'); else hideDrErr('pgp-dr-emailError');
+                        } else if (id === 'pgp-dr-phone') {
+                            ok = /^\(\d{3}\) \d{3}-\d{4}$/.test(v);
+                            if (!ok) showDrErr('pgp-dr-phoneError'); else hideDrErr('pgp-dr-phoneError');
+                        } else if (id === 'pgp-dr-extension') {
+                            ok = v === '' || /^[0-9]+$/.test(v);
+                            if (!ok) showDrErr('pgp-dr-extensionError'); else hideDrErr('pgp-dr-extensionError');
+                        } else if (id === 'pgp-dr-postalCode') {
+                            ok = /^[A-Za-z]\d[A-Za-z] \d[A-Za-z]\d$/.test(v);
+                            if (!ok) showDrErr('pgp-dr-postalCodeError'); else hideDrErr('pgp-dr-postalCodeError');
+                        } else if (id === 'pgp-dr-numberOfPatients') {
+                            ok = /^[0-9]+$/.test(v);
+                            if (!ok) showDrErr('pgp-dr-numberOfPatientsError'); else hideDrErr('pgp-dr-numberOfPatientsError');
+                        } else if (el.name === 'fName[]' || el.name === 'lName[]') {
+                            ok = v !== '';
+                        }
+
+                        if (!ok) {
+                            el.classList.remove('is-valid');
+                            el.classList.add('is-invalid');
+                            return;
+                        }
+
+                        el.classList.remove('is-invalid');
+                        el.classList.add('is-valid');
+                    }
+
+                    form.addEventListener('input', function (e) {
+                        var t = e.target;
+                        if (!form.contains(t)) return;
+                        syncFieldVisual(t, false);
+                    });
+                    form.addEventListener('change', function (e) {
+                        var t = e.target;
+                        if (!form.contains(t)) return;
+                        syncFieldVisual(t, true);
+                    });
+                    form.addEventListener('blur', function (e) {
+                        var t = e.target;
+                        if (!form.contains(t)) return;
+                        syncFieldVisual(t, true);
+                    }, true);
+
+                    function validateStep(stepEl) {
+                        var isValid = true;
+                        var required = stepEl.querySelectorAll('[required]');
+
+                        required.forEach(function (el) {
+                            if (el.type === 'radio') {
+                                var group = stepEl.querySelectorAll('input[type="radio"][name="' + el.name.replace(/"/g, '\\"') + '"]');
+                                var anyChecked = false;
+                                group.forEach(function (g) { if (g.checked) anyChecked = true; });
+                                group.forEach(function (g) {
+                                    g.classList.toggle('is-invalid', !anyChecked);
+                                    g.classList.toggle('is-valid', anyChecked && g.checked);
+                                });
+                                if (!anyChecked) isValid = false;
+                                return;
+                            }
+
+                            if (el.type === 'checkbox') {
+                                el.classList.toggle('is-invalid', !el.checked);
+                                el.classList.toggle('is-valid', el.checked);
+                                if (!el.checked) isValid = false;
+                                return;
+                            }
+
+                            if (el.value === '') {
+                                el.classList.add('is-invalid');
+                                el.classList.remove('is-valid');
+                                isValid = false;
+                            } else {
+                                el.classList.remove('is-invalid');
+                                el.classList.add('is-valid');
+                            }
+                        });
+
+                        if (stepEl === step1) {
+                            var email = document.getElementById('pgp-dr-email');
+                            var emailError = document.getElementById('pgp-dr-emailError');
+                            var emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                            if (email && !emailPattern.test(email.value || '')) {
+                                isValid = false;
+                                email.classList.add('is-invalid');
+                                email.classList.remove('is-valid');
+                                if (emailError) emailError.style.display = 'block';
+                            } else if (email) {
+                                email.classList.remove('is-invalid');
+                                email.classList.add('is-valid');
+                                if (emailError) emailError.style.display = 'none';
+                            }
+
+                            var phoneEl = document.getElementById('pgp-dr-phone');
+                            var phoneError = document.getElementById('pgp-dr-phoneError');
+                            var phonePattern = /^\(\d{3}\) \d{3}-\d{4}$/;
+                            if (phoneEl && !phonePattern.test(phoneEl.value || '')) {
+                                isValid = false;
+                                phoneEl.classList.add('is-invalid');
+                                phoneEl.classList.remove('is-valid');
+                                if (phoneError) phoneError.style.display = 'block';
+                            } else if (phoneEl) {
+                                phoneEl.classList.remove('is-invalid');
+                                phoneEl.classList.add('is-valid');
+                                if (phoneError) phoneError.style.display = 'none';
+                            }
+
+                            var extEl = document.getElementById('pgp-dr-extension');
+                            var extErr = document.getElementById('pgp-dr-extensionError');
+                            var extPattern = /^[0-9]+$/;
+                            if (extEl && extEl.value !== '' && !extPattern.test(extEl.value)) {
+                                isValid = false;
+                                extEl.classList.add('is-invalid');
+                                extEl.classList.remove('is-valid');
+                                if (extErr) extErr.style.display = 'block';
+                            } else if (extEl) {
+                                extEl.classList.remove('is-invalid');
+                                extEl.classList.add('is-valid');
+                                if (extErr) extErr.style.display = 'none';
+                            }
+
+                            var postal = document.getElementById('pgp-dr-postalCode');
+                            var postalErr = document.getElementById('pgp-dr-postalCodeError');
+                            var postalPattern = /^[A-Za-z]\d[A-Za-z] \d[A-Za-z]\d$/;
+                            if (postal && !postalPattern.test((postal.value || '').trim())) {
+                                isValid = false;
+                                postal.classList.add('is-invalid');
+                                postal.classList.remove('is-valid');
+                                if (postalErr) postalErr.style.display = 'block';
+                            } else if (postal) {
+                                postal.classList.remove('is-invalid');
+                                postal.classList.add('is-valid');
+                                if (postalErr) postalErr.style.display = 'none';
+                            }
+                        }
+
+                        if (stepEl === step2) {
+                            var num = document.getElementById('pgp-dr-numberOfPatients');
+                            var numErr = document.getElementById('pgp-dr-numberOfPatientsError');
+                            var numPattern = /^[0-9]+$/;
+                            if (num && !numPattern.test((num.value || '').trim())) {
+                                isValid = false;
+                                num.classList.add('is-invalid');
+                                num.classList.remove('is-valid');
+                                if (numErr) numErr.style.display = 'block';
+                            } else if (num) {
+                                num.classList.remove('is-invalid');
+                                num.classList.add('is-valid');
+                                if (numErr) numErr.style.display = 'none';
+                            }
+                        }
+
+                        return isValid;
+                    }
+
+                    form.querySelectorAll('.pgp-dr-next').forEach(function (btn) {
+                        btn.addEventListener('click', function () {
+                            var stepEl = currentStep === 1 ? step1 : (currentStep === 2 ? step2 : step3);
+                            if (!stepEl) return;
+                            if (!validateStep(stepEl)) return;
+                            showStep(Math.min(3, currentStep + 1));
+                        });
+                    });
+
+                    form.querySelectorAll('.pgp-dr-prev').forEach(function (btn) {
+                        btn.addEventListener('click', function () {
+                            showStep(Math.max(1, currentStep - 1));
+                        });
+                    });
+
+                    var addDoctor = document.getElementById('pgp-dr-add-doctor');
+                    var doctorsWrap = document.getElementById('pgp-dr-doctors');
+                    if (addDoctor && doctorsWrap) {
+                        addDoctor.addEventListener('click', function (e) {
+                            e.preventDefault();
+                            var first = doctorsWrap.querySelector('.pgp-dr-doctor-row');
+                            if (!first) return;
+                            var clone = first.cloneNode(true);
+                            clone.querySelectorAll('input').forEach(function (i) { i.value = ''; });
+                            clone.querySelectorAll('select').forEach(function (s) { s.value = ''; });
+                            var removeBtn = clone.querySelector('.pgp-dr-remove-doctor');
+                            if (removeBtn) {
+                                removeBtn.style.display = 'inline-block';
+                                removeBtn.addEventListener('click', function () {
+                                    clone.remove();
+                                });
+                            }
+                            doctorsWrap.appendChild(clone);
+                        });
+                    }
+
+                    form.addEventListener('submit', function (e) {
+                        e.preventDefault();
+                        if (!validateStep(step1)) {
+                            showStep(1);
+                            return;
+                        }
+                        if (!validateStep(step2)) {
+                            showStep(2);
+                            return;
+                        }
+                        if (!validateStep(step3)) {
+                            showStep(3);
+                            return;
+                        }
+                        if (typeof form.submit === 'function') {
+                            form.submit();
+                        }
+                    });
+
+                    showStep(1);
+                });
+                </script>
+            <?php endif; ?>
+        </div>
+    </main>
+    <?php
+
+    return ob_get_clean();
+}
+add_shortcode('distributor_registration_form', 'pgp_render_distributor_registration_form_shortcode');
+add_shortcode('distributorregistration', 'pgp_render_distributor_registration_form_shortcode');
+
+function pgp_handle_distributor_registration_submission()
+{
+    $redirectUrl = isset($_POST['redirect_to']) ? esc_url_raw(wp_unslash($_POST['redirect_to'])) : home_url('/');
+    if ($redirectUrl === '') {
+        $redirectUrl = home_url('/');
+    }
+
+    $successRedirect = isset($_POST['pgp_dr_success_redirect'])
+        ? esc_url_raw(wp_unslash($_POST['pgp_dr_success_redirect']))
+        : $redirectUrl;
+    if ($successRedirect === '') {
+        $successRedirect = $redirectUrl;
+    }
+    $successRedirect = wp_validate_redirect($successRedirect, $redirectUrl);
+    $successRedirect = remove_query_arg(['pgp_dr_status', 'pgp_dr_message'], $successRedirect);
+
+    if (
+        !isset($_POST['pgp_dr_nonce']) ||
+        !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['pgp_dr_nonce'])), 'pgp_distributor_register')
+    ) {
+        wp_safe_redirect(pgp_build_distributor_registration_feedback_url('error', 'Security check failed. Please try again.', $redirectUrl));
+        exit;
+    }
+
+    $controller = new PGP_Distributor_Registration_Controller();
+    $result = $controller->handle($_POST);
+    $target = ($result['status'] === 'success') ? $successRedirect : $redirectUrl;
+    wp_safe_redirect(
+        pgp_build_distributor_registration_feedback_url($result['status'], $result['message'], $target)
+    );
+    exit;
+}
+add_action('admin_post_nopriv_pgp_distributor_register', 'pgp_handle_distributor_registration_submission');
+add_action('admin_post_pgp_distributor_register', 'pgp_handle_distributor_registration_submission');
+
 function pgp_render_winner_photo_gallery($atts)
 {
     global $wpdb;
