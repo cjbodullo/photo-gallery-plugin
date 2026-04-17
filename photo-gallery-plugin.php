@@ -1009,12 +1009,15 @@ function pgp_render_distributor_registration_form_shortcode($atts, $content = ''
     ?>
     <main class="pgp-dr-shell">
         <div class="container pgp-dr-container">
-            <?php if ($isSuccess) : ?>
+            <?php if (!$isSuccess) : ?>
                 <div class="pgp-dr-thankyou pgp-dr-thankyou-page">
                     <div class="pgp-dr-thankyou-card">
                         <div class="pgp-dr-thankyou-badge"><?php esc_html_e('DISTRIBUTOR APPLICATION RECEIVED', 'photo-gallery-plugin'); ?></div>
                         <h1 class="pgp-dr-thankyou-card-title"><?php esc_html_e('Thank You!', 'photo-gallery-plugin'); ?></h1>
                         <p class="pgp-dr-thankyou-card-lead"><?php esc_html_e('We have received your request form.', 'photo-gallery-plugin'); ?></p>
+                        <div class="pgp-dr-thankyou-banner-wrap text-center">
+                            <img class="pgp-dr-thankyou-banner" src="<?php echo esc_url($assets['thankyou_banner']); ?>" alt="">
+                        </div>
                         <p class="pgp-dr-thankyou-card-text">
                             <?php esc_html_e('We will review your request prior to our next distribution. Once approved you will receive an email from us.', 'photo-gallery-plugin'); ?>
                         </p>
@@ -1027,9 +1030,6 @@ function pgp_render_distributor_registration_form_shortcode($atts, $content = ''
                             <div class="pgp-dr-powered-by">Powered by Samplits</div>
                             <img src="<?php echo esc_url($assets['samplits_logo']); ?>" alt="Samplits Logo">
                         </div>
-                    </div>
-                    <div class="pgp-dr-thankyou-banner-wrap text-center">
-                        <img class="pgp-dr-thankyou-banner" src="<?php echo esc_url($assets['thankyou_banner']); ?>" alt="">
                     </div>
                 </div>
                 <script>

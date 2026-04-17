@@ -297,25 +297,28 @@
   line-height: 1;
 }
 
+/* Matches reg-baby views/distributor/style.css .thank-you */
 .pgp-dr-thankyou-card-title {
   position: relative;
   z-index: 1;
   margin: 0 0 14px;
-  font-size: clamp(32px, 5vw, 44px);
+  font-size: clamp(2.25rem, 8vw, 4rem);
   line-height: 1.1;
-  font-weight: 800;
-  color: #163f56;
+  font-weight: 700;
+  font-style: italic;
+  color: #ff646c;
 }
 
+/* Matches reg-baby .thank-you-message */
 .pgp-dr-thankyou-card-lead {
   position: relative;
   z-index: 1;
   max-width: 560px;
   margin: 0 auto 12px;
-  font-size: 17px;
-  line-height: 1.65;
-  color: #4f6674;
-  font-weight: 500;
+  font-size: clamp(1rem, 2.4vw, 1.35rem);
+  line-height: 1.4;
+  color: #66cccc;
+  font-weight: 700;
 }
 
 .pgp-dr-thankyou-card-text {
@@ -373,17 +376,21 @@
   height: auto;
 }
 
-.pgp-dr-thankyou-banner-wrap {
-  max-width: 640px;
-  margin: 28px auto 0;
+/* Thank-you banner: directly under lead line, compact width */
+.pgp-dr-thankyou-card .pgp-dr-thankyou-banner-wrap {
+  max-width: min(100%, 380px);
+  width: 100%;
+  margin: 0.35rem auto 1.15rem;
 }
 
-.pgp-dr-thankyou-banner {
+.pgp-dr-thankyou-card .pgp-dr-thankyou-banner {
   width: 100%;
+  max-width: 100%;
   height: auto;
-  border-radius: 16px;
+  border-radius: 12px;
   display: block;
-  box-shadow: 0 12px 32px rgba(25, 68, 98, 0.1);
+  margin: 0 auto;
+  box-shadow: none;
 }
 
 @media (max-width: 768px) {
@@ -392,7 +399,6 @@
     border-radius: 22px;
   }
 
-  .pgp-dr-thankyou-card-lead,
   .pgp-dr-thankyou-card-text {
     font-size: 15px;
   }
