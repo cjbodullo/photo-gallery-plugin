@@ -1009,7 +1009,7 @@ function pgp_render_distributor_registration_form_shortcode($atts, $content = ''
     ?>
     <main class="pgp-dr-shell">
         <div class="container pgp-dr-container">
-            <?php if (!$isSuccess) : ?>
+            <?php if ($isSuccess) : ?>
                 <div class="pgp-dr-thankyou pgp-dr-thankyou-page">
                     <div class="pgp-dr-thankyou-card">
                         <div class="pgp-dr-thankyou-badge"><?php esc_html_e('DISTRIBUTOR APPLICATION RECEIVED', 'photo-gallery-plugin'); ?></div>
