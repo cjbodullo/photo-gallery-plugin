@@ -1106,6 +1106,7 @@ function pgp_render_distributor_registration_form_shortcode($atts, $content = ''
                             <input type="hidden" name="pgp_dr_success_redirect" value="<?php echo esc_url($successRedirectUrl); ?>">
                             <?php wp_nonce_field('pgp_distributor_register', 'pgp_dr_nonce'); ?>
 
+                            <div class="pgp-dr-steps-anim-wrap">
                             <div class="pgp-dr-step pgp-dr-step-active" id="pgp-dr-step1">
                                 <div class="form-group">
                                     <label for="pgp-dr-name">*Name of the organization</label>
@@ -1222,7 +1223,7 @@ function pgp_render_distributor_registration_form_shortcode($atts, $content = ''
                                 </div>
                             </div>
 
-                            <div class="pgp-dr-step" id="pgp-dr-step2" style="display:none;">
+                            <div class="pgp-dr-step" id="pgp-dr-step2">
                                 <div class="form-group">
                                     <label class="font-weight-bold">*IF AVAILABLE, do you want any of the following included in your gift bags?</label>
                                     <div class="mb-2">Bottles/Pacifiers</div>
@@ -1310,7 +1311,7 @@ function pgp_render_distributor_registration_form_shortcode($atts, $content = ''
                                 </div>
                             </div>
 
-                            <div class="pgp-dr-step" id="pgp-dr-step3" style="display:none;">
+                            <div class="pgp-dr-step" id="pgp-dr-step3">
                                 <div class="form-group">
                                     <label class="font-weight-bold d-block">Number of Doctors/Doula-Midwife at this centre</label>
                                     <div id="pgp-dr-doctors">
@@ -1371,6 +1372,7 @@ function pgp_render_distributor_registration_form_shortcode($atts, $content = ''
                                     <button type="submit" class="btn btn-primary">Register Now</button>
                                 </div>
                             </div>
+                            </div>
                         </form>
 
                     <div class="pgp-dr-footer p-4 pgp-dr-thankyou-card-footer">
@@ -1385,10 +1387,13 @@ function pgp_render_distributor_registration_form_shortcode($atts, $content = ''
                     form.dataset.pgpReady = '1';
 
                     var currentStep = 1;
+                    var stepAnimLock = false;
+                    var stepAnimMs = 400;
                     var stepImage = document.getElementById('pgp-dr-stepImage');
                     var step1 = document.getElementById('pgp-dr-step1');
                     var step2 = document.getElementById('pgp-dr-step2');
                     var step3 = document.getElementById('pgp-dr-step3');
+                    var stepsAnimWrap = form.querySelector('.pgp-dr-steps-anim-wrap');
                     var items = [
                         document.getElementById('pgp-dr-stepIndicator1') ? document.getElementById('pgp-dr-stepIndicator1').closest('.pgp-dr-step-item') : null,
                         document.getElementById('pgp-dr-stepIndicator2') ? document.getElementById('pgp-dr-stepIndicator2').closest('.pgp-dr-step-item') : null,
@@ -1410,12 +1415,7 @@ function pgp_render_distributor_registration_form_shortcode($atts, $content = ''
                         3: <?php echo wp_json_encode($assets['step3']); ?>
                     };
 
-                    function showStep(step) {
-                        currentStep = step;
-                        [step1, step2, step3].forEach(function (el, idx) {
-                            if (!el) return;
-                            el.style.display = (idx + 1 === step) ? 'block' : 'none';
-                        });
+                    function updateStepIndicators(step) {
                         indicators.forEach(function (el, idx) {
                             if (!el) return;
                             var stepNum = idx + 1;
@@ -1434,10 +1434,78 @@ function pgp_render_distributor_registration_form_shortcode($atts, $content = ''
                             el.classList.toggle('is-active', stepNum === step);
                             el.classList.toggle('is-completed', stepNum < step);
                         });
+                    }
+
+                    function updateStepChrome(step) {
+                        updateStepIndicators(step);
                         if (stepImage && stepImages[step]) {
                             stepImage.src = stepImages[step];
                         }
-                        window.scrollTo({ top: form.getBoundingClientRect().top + window.scrollY - 30, behavior: 'smooth' });
+                    }
+
+                    function showStep(step, instant) {
+                        var steps = [step1, step2, step3];
+                        var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                        if (reduceMotion) {
+                            instant = true;
+                        }
+                        if (!instant && step === currentStep) {
+                            return;
+                        }
+                        if (!instant && stepAnimLock) {
+                            return;
+                        }
+                        if (!stepsAnimWrap) {
+                            currentStep = step;
+                            steps.forEach(function (el, idx) {
+                                if (!el) return;
+                                el.style.display = (idx + 1 === step) ? 'block' : 'none';
+                            });
+                            updateStepChrome(step);
+                            var container = document.querySelector('.pgp-dr-container');
+                            window.scrollTo({ top: container.getBoundingClientRect().top + window.scrollY - 30, behavior: 'smooth' });
+                            return;
+                        }
+                        if (instant || step === currentStep) {
+                            stepAnimLock = false;
+                            stepsAnimWrap.removeAttribute('data-pgp-dir');
+                            steps.forEach(function (el, idx) {
+                                if (!el) return;
+                                el.classList.remove('pgp-dr-step-leaving', 'pgp-dr-step-enter');
+                                el.classList.toggle('pgp-dr-step-active', idx + 1 === step);
+                            });
+                            currentStep = step;
+                            updateStepChrome(step);
+                            var container = document.querySelector('.pgp-dr-container');
+                            window.scrollTo({ top: container.getBoundingClientRect().top + window.scrollY - 30, behavior: 'smooth' });
+                            return;
+                        }
+                        var outgoing = steps[currentStep - 1];
+                        var incoming = steps[step - 1];
+                        if (!outgoing || !incoming) {
+                            return;
+                        }
+                        stepAnimLock = true;
+                        stepsAnimWrap.setAttribute('data-pgp-dir', step > currentStep ? 'next' : 'prev');
+                        updateStepIndicators(step);
+                        outgoing.classList.add('pgp-dr-step-leaving');
+                        incoming.classList.add('pgp-dr-step-active', 'pgp-dr-step-enter');
+                        requestAnimationFrame(function () {
+                            requestAnimationFrame(function () {
+                                incoming.classList.remove('pgp-dr-step-enter');
+                            });
+                        });
+                        window.setTimeout(function () {
+                            outgoing.classList.remove('pgp-dr-step-active', 'pgp-dr-step-leaving');
+                            stepAnimLock = false;
+                            currentStep = step;
+                            stepsAnimWrap.removeAttribute('data-pgp-dir');
+                            if (stepImage && stepImages[step]) {
+                                stepImage.src = stepImages[step];
+                            }
+                            var container = document.querySelector('.pgp-dr-container');
+                            window.scrollTo({ top: container.getBoundingClientRect().top + window.scrollY - 30, behavior: 'smooth' });
+                        }, stepAnimMs);
                     }
 
                     function formatPhone(value) {
@@ -1708,15 +1776,15 @@ function pgp_render_distributor_registration_form_shortcode($atts, $content = ''
                     form.addEventListener('submit', function (e) {
                         e.preventDefault();
                         if (!validateStep(step1)) {
-                            showStep(1);
+                            showStep(1, true);
                             return;
                         }
                         if (!validateStep(step2)) {
-                            showStep(2);
+                            showStep(2, true);
                             return;
                         }
                         if (!validateStep(step3)) {
-                            showStep(3);
+                            showStep(3, true);
                             return;
                         }
                         if (typeof form.submit === 'function') {
@@ -1724,7 +1792,7 @@ function pgp_render_distributor_registration_form_shortcode($atts, $content = ''
                         }
                     });
 
-                    showStep(1);
+                    showStep(1, true);
                 });
                 </script>
             <?php endif; ?>

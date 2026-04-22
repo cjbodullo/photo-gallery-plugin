@@ -108,6 +108,69 @@
   display: none;
 }
 
+/* Multi-step form: stacked panels with slide/fade when changing steps */
+.pgp-dr-steps-anim-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.pgp-dr-steps-anim-wrap > .pgp-dr-step {
+  grid-area: 1 / 1;
+  min-width: 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translate3d(0, 0, 0);
+  transition:
+    opacity 0.4s cubic-bezier(0.25, 0.8, 0.25, 1),
+    transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.pgp-dr-steps-anim-wrap > .pgp-dr-step.pgp-dr-step-active {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  z-index: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+.pgp-dr-steps-anim-wrap > .pgp-dr-step.pgp-dr-step-active.pgp-dr-step-leaving {
+  pointer-events: none;
+  z-index: 0;
+}
+
+.pgp-dr-steps-anim-wrap[data-pgp-dir='next'] > .pgp-dr-step.pgp-dr-step-active.pgp-dr-step-leaving {
+  transform: translate3d(-22px, 0, 0);
+  opacity: 0;
+}
+
+.pgp-dr-steps-anim-wrap[data-pgp-dir='prev'] > .pgp-dr-step.pgp-dr-step-active.pgp-dr-step-leaving {
+  transform: translate3d(22px, 0, 0);
+  opacity: 0;
+}
+
+.pgp-dr-steps-anim-wrap > .pgp-dr-step.pgp-dr-step-active.pgp-dr-step-enter {
+  transition: none;
+  z-index: 2;
+}
+
+.pgp-dr-steps-anim-wrap[data-pgp-dir='next'] > .pgp-dr-step.pgp-dr-step-active.pgp-dr-step-enter {
+  transform: translate3d(28px, 0, 0);
+  opacity: 0;
+}
+
+.pgp-dr-steps-anim-wrap[data-pgp-dir='prev'] > .pgp-dr-step.pgp-dr-step-active.pgp-dr-step-enter {
+  transform: translate3d(-28px, 0, 0);
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pgp-dr-steps-anim-wrap > .pgp-dr-step,
+  .pgp-dr-steps-anim-wrap > .pgp-dr-step.pgp-dr-step-active {
+    transition-duration: 0.01ms;
+  }
+}
+
 .pgp-dr-footer {
   text-align: center;
   margin-top: 18px;
