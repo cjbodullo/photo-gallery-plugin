@@ -1,6 +1,6 @@
 <?php
 /**
- * Resolved MySQL table names for distributor registration (supports unprefixed / prefixed).
+ * Resolved MySQL table names for distributor registration ({prefix}dis_* first, then legacy names).
  */
 
 if (!defined('ABSPATH')) {
@@ -51,17 +51,17 @@ class PGP_Model_Distributor_Tables
     public static function resolve()
     {
         $t = new self();
-        if (!function_exists('pgp_find_table_name')) {
+        if (!function_exists('pgp_find_distributor_table_name')) {
             return $t;
         }
-        $t->country = pgp_find_table_name('country');
-        $t->distributors = pgp_find_table_name('distributors');
-        $t->distributors_status = pgp_find_table_name('distributors_status');
-        $t->distributors_distribution_plan = pgp_find_table_name('distributors_distribution_plan');
-        $t->distributors_doctors = pgp_find_table_name('distributors_doctors');
-        $t->address = pgp_find_table_name('address');
-        $t->city = pgp_find_table_name('city');
-        $t->province = pgp_find_table_name('province');
+        $t->country = pgp_find_distributor_table_name('country');
+        $t->distributors = pgp_find_distributor_table_name('distributors');
+        $t->distributors_status = pgp_find_distributor_table_name('distributors_status');
+        $t->distributors_distribution_plan = pgp_find_distributor_table_name('distributors_distribution_plan');
+        $t->distributors_doctors = pgp_find_distributor_table_name('distributors_doctors');
+        $t->address = pgp_find_distributor_table_name('address');
+        $t->city = pgp_find_distributor_table_name('city');
+        $t->province = pgp_find_distributor_table_name('province');
 
         return $t;
     }

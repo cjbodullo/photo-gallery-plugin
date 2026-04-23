@@ -1,6 +1,7 @@
 <?php
 /**
  * Creates distributor-related tables using dbDelta (WordPress-safe).
+ * Table names: {$wpdb->prefix}dis_{suffix} (e.g. wp_dis_distributors).
  */
 
 if (!defined('ABSPATH')) {
@@ -15,10 +16,10 @@ class PGP_Distributor_Db_Migrate
 
     public static function maybe_install()
     {
-        if (!function_exists('pgp_find_table_name')) {
+        if (!function_exists('pgp_find_distributor_table_name')) {
             return;
         }
-        if (pgp_find_table_name('distributors') !== '') {
+        if (pgp_find_distributor_table_name('distributors') !== '') {
             return;
         }
         self::install();
@@ -31,7 +32,7 @@ class PGP_Distributor_Db_Migrate
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
         $charsetCollate = $wpdb->get_charset_collate();
-        $p = $wpdb->prefix;
+        $p = $wpdb->prefix . 'dis_';
 
         $tables = [
             self::sql_country($p, $charsetCollate),

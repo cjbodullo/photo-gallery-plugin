@@ -1,13 +1,14 @@
 -- Distributor registration schema (aligned with reg-baby + WordPress plugin inserts).
--- Replace `wp_` with your WordPress $table_prefix if you run this manually in phpMyAdmin.
--- Prefer running the plugin migration: it uses dbDelta() and your real prefix automatically.
+-- Canonical table names: `{table_prefix}dis_*` (e.g. `wp_dis_country` when prefix is `wp_`).
+-- If you run this manually, replace `wp_dis_` with your `$wpdb->prefix . 'dis_'`.
+-- Prefer the plugin migration: dbDelta() uses your real prefix and `dis_` automatically.
 
 SET NAMES utf8mb4;
 
 -- ---------------------------------------------------------------------------
 -- country
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS `wp_country` (
+CREATE TABLE IF NOT EXISTS `wp_dis_country` (
   `country_id` int unsigned NOT NULL AUTO_INCREMENT,
   `country_title` varchar(190) NOT NULL,
   `status` tinyint NOT NULL DEFAULT 1,
@@ -15,14 +16,14 @@ CREATE TABLE IF NOT EXISTS `wp_country` (
   KEY `idx_country_title` (`country_title`(64))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-INSERT INTO `wp_country` (`country_id`, `country_title`, `status`)
+INSERT INTO `wp_dis_country` (`country_id`, `country_title`, `status`)
 VALUES (1, 'Canada', 1)
 ON DUPLICATE KEY UPDATE `country_title` = VALUES(`country_title`), `status` = VALUES(`status`);
 
 -- ---------------------------------------------------------------------------
 -- province
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS `wp_province` (
+CREATE TABLE IF NOT EXISTS `wp_dis_province` (
   `province_id` int unsigned NOT NULL AUTO_INCREMENT,
   `country_id` int unsigned NOT NULL DEFAULT 1,
   `province_name` varchar(190) NOT NULL,
@@ -36,7 +37,7 @@ CREATE TABLE IF NOT EXISTS `wp_province` (
 -- ---------------------------------------------------------------------------
 -- city
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS `wp_city` (
+CREATE TABLE IF NOT EXISTS `wp_dis_city` (
   `city_id` int unsigned NOT NULL AUTO_INCREMENT,
   `province_id` int unsigned NOT NULL,
   `city_name` varchar(190) NOT NULL,
@@ -48,7 +49,7 @@ CREATE TABLE IF NOT EXISTS `wp_city` (
 -- ---------------------------------------------------------------------------
 -- address
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS `wp_address` (
+CREATE TABLE IF NOT EXISTS `wp_dis_address` (
   `address_id` int unsigned NOT NULL AUTO_INCREMENT,
   `suite_number` varchar(64) DEFAULT NULL,
   `address1` varchar(255) NOT NULL,
@@ -62,7 +63,7 @@ CREATE TABLE IF NOT EXISTS `wp_address` (
 -- ---------------------------------------------------------------------------
 -- distributors
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS `wp_distributors` (
+CREATE TABLE IF NOT EXISTS `wp_dis_distributors` (
   `distributor_id` int unsigned NOT NULL AUTO_INCREMENT,
   `firstname` varchar(120) NOT NULL,
   `lastname` varchar(120) NOT NULL,
@@ -93,7 +94,7 @@ CREATE TABLE IF NOT EXISTS `wp_distributors` (
 -- ---------------------------------------------------------------------------
 -- distributors_status
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS `wp_distributors_status` (
+CREATE TABLE IF NOT EXISTS `wp_dis_distributors_status` (
   `distributor_status_id` int unsigned NOT NULL AUTO_INCREMENT,
   `distributor_id` int unsigned NOT NULL,
   `account_status` tinyint NOT NULL DEFAULT 2,
@@ -112,7 +113,7 @@ CREATE TABLE IF NOT EXISTS `wp_distributors_status` (
 -- ---------------------------------------------------------------------------
 -- distributors_distribution_plan
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS `wp_distributors_distribution_plan` (
+CREATE TABLE IF NOT EXISTS `wp_dis_distributors_distribution_plan` (
   `distribution_plan_id` int unsigned NOT NULL AUTO_INCREMENT,
   `distributor_id` int unsigned NOT NULL,
   `yearly_total` int NOT NULL DEFAULT 0,
@@ -148,7 +149,7 @@ CREATE TABLE IF NOT EXISTS `wp_distributors_distribution_plan` (
 -- ---------------------------------------------------------------------------
 -- distributors_doctors
 -- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS `wp_distributors_doctors` (
+CREATE TABLE IF NOT EXISTS `wp_dis_distributors_doctors` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
   `distributor_id` int unsigned NOT NULL,
   `prefix` varchar(64) NOT NULL DEFAULT '',

@@ -7,6 +7,60 @@
   max-width: 980px;
 }
 
+/* Match Bootstrap field spacing on this form only */
+.pgp-dr-form .form-group {
+  margin-bottom: 1rem;
+}
+
+/*
+ * Bootstrap-like grid scoped to this form. External Bootstrap may fail to load, or the
+ * theme may override .col-md-*. These rules mirror BS4 form-row + columns so two fields
+ * stay on one line from 768px up.
+ */
+.pgp-dr-form .form-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  margin-right: -5px;
+  margin-left: -5px;
+}
+
+.pgp-dr-form .form-row > [class*='col-'] {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  padding-right: 5px;
+  padding-left: 5px;
+  flex: 0 0 100%;
+  max-width: 100%;
+}
+
+/* Pairs (first/last, email/job, …): two columns from small screens up */
+@media (min-width: 576px) {
+  .pgp-dr-form .form-row > .col-md-6 {
+    flex: 0 0 50% !important;
+    max-width: 50% !important;
+  }
+}
+
+/* Three- and four-column rows: room from md up */
+@media (min-width: 768px) {
+  .pgp-dr-form .form-row > .col-md-4 {
+    flex: 0 0 33.333333% !important;
+    max-width: 33.333333% !important;
+  }
+
+  .pgp-dr-form .form-row > .col-md-3 {
+    flex: 0 0 25% !important;
+    max-width: 25% !important;
+  }
+
+  .pgp-dr-form .form-row > .col-md-1 {
+    flex: 0 0 8.333333% !important;
+    max-width: 8.333333% !important;
+  }
+}
+
 .pgp-dr-form-container {
   background: rgba(255, 255, 255, 0.92);
   border-radius: 18px;
